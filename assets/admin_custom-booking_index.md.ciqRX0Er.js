@@ -103,11 +103,11 @@ import{_ as i,o as a,c as t,ag as e}from"./chunks/framework.NIGIbcGl.js";const c
 <span class="line"><span>                │ PENDING │</span></span>
 <span class="line"><span>                └────┬────┘</span></span>
 <span class="line"><span>                     │</span></span>
-<span class="line"><span>        ┌────────────┼──────────────┐</span></span>
-<span class="line"><span>        ▼            ▼              ▼</span></span>
-<span class="line"><span>  ┌──────────────────┐ ┌───────────┐ ┌───────────┐</span></span>
-<span class="line"><span>  │UPLOADED_MANIFEST │ │ CANCELLED │ │ EXPIRED*  │</span></span>
-<span class="line"><span>  └────┬─────────────┘ └───────────┘ └───────────┘</span></span>
+<span class="line"><span>        ┌────────────┴──────────────┐</span></span>
+<span class="line"><span>        ▼                           ▼</span></span>
+<span class="line"><span>  ┌──────────────────┐       ┌───────────┐</span></span>
+<span class="line"><span>  │UPLOADED_MANIFEST │       │ CANCELLED │</span></span>
+<span class="line"><span>  └────┬─────────────┘       └───────────┘</span></span>
 <span class="line"><span>       │</span></span>
 <span class="line"><span>       ├──────────────────────────► NOT_AVAILABLE</span></span>
 <span class="line"><span>       │</span></span>
@@ -122,7 +122,7 @@ import{_ as i,o as a,c as t,ag as e}from"./chunks/framework.NIGIbcGl.js";const c
 <span class="line"><span>       │          │                    │ (reject)</span></span>
 <span class="line"><span>       ▼          ▼                    │</span></span>
 <span class="line"><span>   ┌──────┐  ┌─────────┐     ┌─────────┴───────────────┐</span></span>
-<span class="line"><span>   │ PAID │  │ EXPIRED │     │ WAITING_PAYMENT_REVIEW  │</span></span>
+<span class="line"><span>   │ PAID │  │ EXPIRED*│     │ WAITING_PAYMENT_REVIEW  │</span></span>
 <span class="line"><span>   └──┬───┘  └─────────┘     │  (manual-transfer only) │</span></span>
 <span class="line"><span>      │           ▲          └───────────┬─────────────┘</span></span>
 <span class="line"><span>      │           └──────────(approve)───┤</span></span>
@@ -166,7 +166,11 @@ import{_ as i,o as a,c as t,ag as e}from"./chunks/framework.NIGIbcGl.js";const c
 <span class="line"><span></span></span>
 <span class="line"><span>CANCELLED is reachable from every non-terminal state (admin/system).</span></span>
 <span class="line"><span></span></span>
-<span class="line"><span>* EXPIRED only reachable directly from PENDING and WAITING_FOR_PAYMENT.</span></span>
+<span class="line"><span>* EXPIRED is set by the Xendit payment webhook when the payment window</span></span>
+<span class="line"><span>  elapses; reachable from WAITING_FOR_PAYMENT and WAITING_PAYMENT_REVIEW. The</span></span>
+<span class="line"><span>  gateway webhook is the sole trigger — there is no cron fallback, so the</span></span>
+<span class="line"><span>  PaymentStatusUpdateProcessor MUST carry the booking from waiting-for-payment</span></span>
+<span class="line"><span>  to EXPIRED when the gateway reports the invoice expired.</span></span>
 <span class="line"><span></span></span>
 <span class="line"><span>Terminal states (no further transitions allowed):</span></span>
 <span class="line"><span>  COMPLETED, CANCELLED, EXPIRED, NOT_AVAILABLE</span></span></code></pre></div><h3 id="status-reference" tabindex="-1">Status Reference <a class="header-anchor" href="#status-reference" aria-label="Permalink to &quot;Status Reference&quot;">​</a></h3><table tabindex="0"><thead><tr><th>Status</th><th>Meaning</th><th>Set by</th></tr></thead><tbody><tr><td><code>PENDING</code></td><td>New booking, awaiting passenger list submission</td><td>Customer create</td></tr><tr><td><code>UPLOADED_MANIFEST</code></td><td>Passenger list has been submitted (auto on <code>PATCH .../passengers</code>, or set by admin). Manifest <strong>file</strong> upload does not affect status. With auto-confirm ON (default) this is a transient state — the booking advances straight to <code>CONFIRMED</code>; it only persists here if auto-confirm is disabled or fails.</td><td>Customer passenger upload / Admin</td></tr><tr><td><code>CONFIRMED</code></td><td>Booking accepted; invoice + payment link issued and the customer must now pay. Reached automatically on passenger upload (auto-confirm, default ON) or set by an admin. A <code>ticketChannelId</code> is <strong>not</strong> required — the capital source is set separately via <code>PATCH .../source</code>.</td><td>Auto on passenger upload / Admin</td></tr><tr><td><code>WAITING_FOR_PAYMENT</code></td><td>Invoice issued, awaiting customer payment</td><td>Admin</td></tr><tr><td><code>WAITING_PAYMENT_REVIEW</code></td><td><strong>Manual-transfer only.</strong> Customer submitted a transfer proof; booking is parked while an admin reviews it. Approve settles to <code>PAID</code>; reject sends the booking back to <code>WAITING_FOR_PAYMENT</code> so the customer can re-upload. Xendit and other gateways never enter this state.</td><td>Auto on proof upload</td></tr><tr><td><code>PAID</code></td><td>Payment confirmed via gateway webhook (Xendit etc.) or via admin approval of a manual-transfer proof</td><td>Payment webhook / Admin approval</td></tr><tr><td><code>WAITING_FOR_TICKET</code></td><td>Admin downloaded the manifest (auto-transition from <code>PAID</code>), or admin pushed the booking here directly via <code>PATCH .../status</code> when the manifest was delivered out-of-band. Ticket pending from channel.</td><td>Auto on manifest download / Admin (manual)</td></tr><tr><td><code>TICKET_RECEIVED</code></td><td><strong>Legacy.</strong> No longer produced by ticket upload — kept so rows already in this state can close out via the customer confirm-received endpoint or the hourly auto-complete cron.</td><td>— (legacy data only)</td></tr><tr><td><code>COMPLETED</code></td><td>Admin uploaded ticket (new flow) <strong>or</strong> customer confirmed receipt (legacy) <strong>or</strong> auto-completed 24h post-departure (legacy)</td><td>Admin upload / Customer / cron</td></tr><tr><td><code>CANCELLED</code></td><td>Booking cancelled</td><td>Admin</td></tr><tr><td><code>EXPIRED</code></td><td>Payment window elapsed</td><td>Webhook</td></tr><tr><td><code>NOT_AVAILABLE</code></td><td>Channel confirmed seats unavailable</td><td>Admin</td></tr></tbody></table><hr><h2 id="_1-update-booking-status" tabindex="-1">1. Update Booking Status <a class="header-anchor" href="#_1-update-booking-status" aria-label="Permalink to &quot;1. Update Booking Status&quot;">​</a></h2><div class="language-http vp-adaptive-theme"><button title="Copy Code" class="copy"></button><span class="lang">http</span><pre class="shiki shiki-themes github-light github-dark vp-code" tabindex="0"><code><span class="line"><span style="--shiki-light:#D73A49;--shiki-dark:#F97583;">PATCH</span><span style="--shiki-light:#24292E;--shiki-dark:#E1E4E8;"> /admin/custom-booking/:id/status</span></span>
